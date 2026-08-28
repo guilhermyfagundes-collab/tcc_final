@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Personagem Mente">
+  <rect width="160" height="160" rx="36" fill="#dff6d5"/>
+  <path d="M80 25 C51 25 35 44 38 67 C22 72 26 99 48 101 C54 124 72 133 80 133 C88 133 106 124 112 101 C134 99 138 72 122 67 C125 44 109 25 80 25 Z" fill="#8ee35f" stroke="#123b67" stroke-width="7"/>
+  <path d="M56 63 Q65 52 74 63 M86 63 Q95 52 104 63" fill="none" stroke="#123b67" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="65" cy="76" r="5" fill="#123b67"/><circle cx="95" cy="76" r="5" fill="#123b67"/>
+  <path d="M61 96 Q80 110 99 96" fill="none" stroke="#123b67" stroke-width="6" stroke-linecap="round"/>
+</svg>

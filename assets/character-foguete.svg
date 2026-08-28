@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Personagem Foguete">
+  <rect width="160" height="160" rx="36" fill="#ccecff"/>
+  <path d="M80 18 C111 31 121 67 105 103 L80 128 L55 103 C39 67 49 31 80 18 Z" fill="#f05a5a" stroke="#123b67" stroke-width="7"/>
+  <circle cx="80" cy="66" r="17" fill="#ffd447" stroke="#123b67" stroke-width="6"/>
+  <path d="M57 104 L43 132 L69 119 M103 104 L117 132 L91 119" fill="#8ee35f" stroke="#123b67" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M80 127 L70 151 L80 144 L90 151 Z" fill="#ffd447" stroke="#123b67" stroke-width="5" stroke-linejoin="round"/>
+</svg>
