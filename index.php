@@ -9,7 +9,7 @@ $gameConfig = require __DIR__ . '/config/game.php';
   <title><?= htmlspecialchars($gameConfig['title'], ENT_QUOTES, 'UTF-8') ?> | Matemática</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="difficulty.css">
-  <link rel="stylesheet" href="effects.css?v=23">
+  <link rel="stylesheet" href="effects.css?v=36">
   </head>
 <body>
   <a class="skip-link" href="#main-content">Ir para o jogo</a>
@@ -27,6 +27,6 @@ $gameConfig = require __DIR__ . '/config/game.php';
   </main>
   <footer class="footer"><img class="footer-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><span>GUILF TECH</span><span><?= htmlspecialchars($gameConfig['grade'], ENT_QUOTES, 'UTF-8') ?></span></footer><div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>window.gameConfig = <?= json_encode($gameConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;</script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=36"></script>
 </body>
 </html>

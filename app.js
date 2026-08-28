@@ -3,6 +3,56 @@ const state = { difficulty: 'easy', active: false, training: false, paused: fals
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
+function createGameLibrary(nickname) {
+  const existing = $('.game-library');
+  if (existing) existing.remove();
+  document.body.classList.add('library-active');
+  const library = document.createElement('section');
+  library.className = 'game-library';
+  library.innerHTML = `<div class="library-card"><div class="library-top"><div><p class="eyebrow">BIBLIOTECA GUILF TECH</p><h1>Escolha sua missão</h1><p>Olá, ${nickname}! Qual desafio você quer jogar?</p></div><button type="button" class="library-close" aria-label="Fechar biblioteca">×</button></div><div class="library-games"><article class="library-game featured"><img src="assets/math-book.svg" alt="Livro de matemática"><div><span class="game-tag">JOGO PRINCIPAL</span><h2>Conta & Combate</h2><p>Resolva contas, ataque a máquina e conquiste a vitória.</p><button type="button" data-game="battle">Jogar agora <span>→</span></button></div></article><article class="library-game memory-game"><img src="assets/memory-cards.svg" alt="Cartas numéricas do jogo da memória"><div><span class="game-tag">JOGO SECUNDÁRIO</span><h2>Memória dos Números</h2><p>Encontre os pares de números iguais.</p><button type="button" data-game="memory">Jogar memória <span>→</span></button></div></article></div><div class="library-footer"><span>Seu progresso fica salvo neste navegador.</span><button type="button" class="account-library-button">Trocar conta</button></div></div>`;
+  document.body.prepend(library);
+  const close = () => { library.remove(); document.body.classList.remove('library-active'); };
+  library.querySelector('.library-close').addEventListener('click', close);
+  library.querySelector('[data-game="battle"]').addEventListener('click', close);
+  library.querySelector('[data-game="memory"]').addEventListener('click', () => { close(); startMemoryGame(nickname); });
+  library.querySelector('.account-library-button').addEventListener('click', () => { close(); createAuthScreen(); });
+}
+
+function startMemoryGame(nickname) {
+  document.body.classList.add('memory-active');
+  const overlay = document.createElement('section');
+  overlay.className = 'memory-screen';
+  overlay.innerHTML = `<div class="memory-card"><div class="memory-top-actions"><button type="button" id="memory-dark" aria-label="Ativar modo escuro">☾ Modo escuro</button><button type="button" id="memory-accessibility" aria-label="Ativar modo acessível">Aa Acessibilidade</button><button type="button" id="memory-account">Trocar conta</button></div><div class="memory-header"><div><span class="game-tag">MEMÓRIA DOS NÚMEROS</span><h1>Encontre os iguais!</h1><p>Escolha a dificuldade e vire duas cartas por vez.</p></div><div class="memory-stats"><span>Jogadas <strong id="memory-moves">0</strong></span><span>Pares <strong id="memory-pairs">0/4</strong></span><span>Pontos <strong id="memory-score">0</strong></span><span>Recorde <strong id="memory-best">0</strong></span></div></div><div class="memory-difficulty"><span>Nível:</span><button type="button" class="memory-level active" data-memory-level="easy">Fácil <small>4 pares</small></button><button type="button" class="memory-level" data-memory-level="medium">Médio <small>6 pares</small></button><button type="button" class="memory-level" data-memory-level="hard">Difícil <small>8 pares</small></button></div><div id="memory-board" class="memory-board"></div><p id="memory-feedback" class="memory-feedback">Escolha uma carta para começar.</p><div id="memory-result" class="memory-result"></div><button type="button" id="memory-exit">Voltar à biblioteca</button></div>`;
+  document.body.prepend(overlay);
+  let memoryLevel = 'easy';
+  const numbers = { easy: ['7', '12', '19', '24'], medium: ['7', '12', '19', '24', '31', '45'], hard: ['7', '12', '19', '24', '31', '45', '58', '73'] };
+  let pairs = numbers[memoryLevel].map((value) => [value, value]);
+  let firstCard = null; let locked = false; let matched = 0; let moves = 0; let score = 0;
+  const bestKey = 'contaCombateMemoryBest'; const bestScore = Number(localStorage.getItem(bestKey) || 0); $('#memory-best').textContent = bestScore;
+  let cards;
+  const board = $('#memory-board');
+  const setupBoard = () => {
+    pairs = numbers[memoryLevel].map((value) => [value, value]); matched = 0; moves = 0; score = 0; firstCard = null; locked = false; cards = pairs.flatMap(([first, second], index) => [{ value: first, pair: index }, { value: second, pair: index }]).sort(() => Math.random() - .5);
+    $('#memory-pairs').textContent = `0/${pairs.length}`; $('#memory-moves').textContent = '0'; $('#memory-score').textContent = '0'; $('#memory-result').textContent = '';
+    board.innerHTML = cards.map((card, index) => `<button class="memory-tile" type="button" data-index="${index}"><span class="memory-front">?</span><span class="memory-back">${card.value}</span></button>`).join('');
+    board.querySelectorAll('.memory-tile').forEach((tile) => tile.addEventListener('click', () => {
+    if (locked || tile.classList.contains('flipped') || tile.classList.contains('matched')) return;
+    tile.classList.add('flipped');
+    if (!firstCard) { firstCard = tile; return; }
+    moves += 1; $('#memory-moves').textContent = moves; locked = true;
+    const secondCard = tile; const first = cards[Number(firstCard.dataset.index)]; const second = cards[Number(secondCard.dataset.index)];
+    if (first.pair === second.pair) { firstCard.classList.add('matched'); secondCard.classList.add('matched'); matched += 1; score += Math.max(40, 140 - moves * 5); $('#memory-score').textContent = score; $('#memory-pairs').textContent = `${matched}/${pairs.length}`; $('#memory-feedback').textContent = 'Par encontrado! Muito bem!'; $('#memory-feedback').className = 'memory-feedback success'; playTone(740); locked = false; firstCard = null; if (matched === pairs.length) { if (score > Number(localStorage.getItem(bestKey) || 0)) localStorage.setItem(bestKey, String(score)); $('#memory-result').innerHTML = `<img src="assets/trophy.svg" alt="Troféu"><strong>Parabéns, ${nickname}!</strong> Você venceu com ${score} pontos em ${moves} jogadas.`; } }
+    else { $('#memory-feedback').textContent = 'Não combinou. Tente novamente!'; $('#memory-feedback').className = 'memory-feedback error'; playTone(180); setTimeout(() => { firstCard.classList.remove('flipped'); secondCard.classList.remove('flipped'); locked = false; firstCard = null; }, 800); }
+    }));
+  };
+  $$('.memory-level').forEach((button) => button.addEventListener('click', () => { $$('.memory-level').forEach((item) => item.classList.remove('active')); button.classList.add('active'); memoryLevel = button.dataset.memoryLevel; setupBoard(); $('#memory-feedback').textContent = `Nível ${button.textContent.trim()} selecionado. Boa sorte!`; }));
+  setupBoard();
+  $('#memory-dark').addEventListener('click', () => { const dark = document.body.classList.toggle('dark-mode'); $('#memory-dark').textContent = dark ? '☀ Modo claro' : '☾ Modo escuro'; });
+  $('#memory-accessibility').addEventListener('click', () => document.body.classList.toggle('accessibility-mode'));
+  $('#memory-account').addEventListener('click', () => { overlay.remove(); document.body.classList.remove('memory-active'); createAuthScreen(); });
+  $('#memory-exit').addEventListener('click', () => { overlay.remove(); document.body.classList.remove('memory-active'); createGameLibrary(nickname); });
+}
+
 function createHeroBrand() {
   if ($('.hero-brand')) return;
   const title = $('#page-title');
@@ -34,6 +84,18 @@ function createAuthScreen() {
     });
     $('.top-actions').prepend(accountButton);
   }
+  if (!$('#library-button')) {
+    const libraryButton = document.createElement('button');
+    libraryButton.id = 'library-button';
+    libraryButton.className = 'account-button';
+    libraryButton.type = 'button';
+    libraryButton.textContent = 'Biblioteca de jogos';
+    libraryButton.addEventListener('click', () => {
+      if (state.active) { state.active = false; clearTimeout(state.machineTimer); clearInterval(state.questionTimer); setInteractive(false); }
+      createGameLibrary($('#player-name').textContent || 'Jogador 1');
+    });
+    $('.top-actions').prepend(libraryButton);
+  }
   let mode = 'login';
   const name = $('#auth-name');
   const email = $('#auth-email');
@@ -42,6 +104,7 @@ function createAuthScreen() {
   const setMode = (nextMode) => {
     mode = nextMode;
     const register = mode === 'register';
+    auth.classList.toggle('auth-register', register);
     $$('.auth-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.authMode === mode));
     $$('.register-only').forEach((field) => field.classList.toggle('visible', register));
     name.required = register;
@@ -66,7 +129,7 @@ function createAuthScreen() {
     if (!user || user.password !== password.value) { message.textContent = 'E-mail ou senha incorretos.'; return; }
     $('#nickname-input').value = user.name;
     auth.classList.add('authenticated');
-    setTimeout(() => auth.remove(), 350);
+    setTimeout(() => { auth.remove(); createGameLibrary(user.name); }, 350);
   });
 }
 function createAccessibilityButton() {
@@ -143,6 +206,12 @@ function addMathImages() {
     const image = images[card.dataset.difficulty];
     if (image) card.querySelector('.mode-icon').innerHTML = `<img src="assets/${image[0]}" alt="${image[1]}">`;
   });
+}
+function addInterfaceImages() {
+  const intro = $('.intro');
+  if (intro && !$('.math-book-art')) intro.insertAdjacentHTML('beforeend', '<img class="math-book-art" src="assets/math-book.svg" alt="Livro de matemática">');
+  const stats = $('.game-stats');
+  if (stats && !$('.points-art')) stats.insertAdjacentHTML('afterbegin', '<img class="points-art" src="assets/point-coin.svg" alt="">');
 }
 function machineAttack() {
   if (state.training) return 0;
@@ -258,7 +327,7 @@ function showFinalReport(won) {
   const report = $('#final-report');
   const accuracy = state.questionIndex ? Math.round((state.correctAnswers / state.questionIndex) * 100) : 0;
   const medal = won && accuracy >= 90 ? 'Ouro' : won && accuracy >= 70 ? 'Prata' : won ? 'Bronze' : 'Treino';
-  report.innerHTML = `${won ? '<img src="assets/trophy.svg" alt="Troféu de vitória">' : ''}<strong>${won ? 'Relatório da vitória' : 'Relatório da partida'}</strong><span>Acertos: ${state.correctAnswers}/${state.questionIndex}</span><span>Precisão: ${accuracy}%</span><span>Pontuação: ${state.score}</span><span>Medalha: ${medal}</span>`;
+  report.innerHTML = `${won ? '<img src="assets/trophy.svg" alt="Troféu de vitória"><img class="victory-stars" src="assets/victory-stars.svg" alt="Estrelas de vitória">' : ''}<strong>${won ? 'Relatório da vitória' : 'Relatório da partida'}</strong><span>Acertos: ${state.correctAnswers}/${state.questionIndex}</span><span>Precisão: ${accuracy}%</span><span>Pontuação: ${state.score}</span><span>Medalha: ${medal}</span>`;
 }
 function startGame() {
   state.active = true; state.paused = false; state.questionIndex = 0; state.streak = 0; state.score = 0; state.correctAnswers = 0; state.shield = false; state.playerHealth = config.startingHealth; state.maxOpponentHealth = state.difficulty === 'hard' ? 130 : config.startingHealth; state.opponentHealth = state.maxOpponentHealth;
@@ -283,6 +352,7 @@ $('#read-question').addEventListener('click', speakQuestion);
 $('#dark-mode-button').addEventListener('click', () => { const dark = document.body.classList.toggle('dark-mode'); $('#dark-mode-button').setAttribute('aria-pressed', String(dark)); $('#dark-mode-button').setAttribute('aria-label', dark ? 'Desativar modo escuro' : 'Ativar modo escuro'); $('#dark-mode-button').textContent = dark ? '☀' : '☾'; });
 createNicknameField();
 addMathImages();
+addInterfaceImages();
 createHeroBrand();
 setCharacter(state.character);
 $('.character-robot').innerHTML = '<img src="assets/character-robo.svg" alt="Professor Robô">';
