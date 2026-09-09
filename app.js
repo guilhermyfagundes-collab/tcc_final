@@ -1,13 +1,67 @@
 const config = window.gameConfig || { rounds: 10, startingHealth: 100, defaultMode: 'solo', soloOpponent: 'Professor Robô' };
 const state = { difficulty: 'easy', active: false, training: false, paused: false, question: null, questionIndex: 0, streak: 0, score: 0, correctAnswers: 0, playerHealth: config.startingHealth, opponentHealth: config.startingHealth, maxOpponentHealth: config.startingHealth, machineTimer: null, questionTimer: null, questionSeconds: 0, gameStartedAt: 0, sound: true, fontLarge: false };
+const SESSION_USER_KEY = 'contaCombateAuthUser';
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+function getCurrentUser() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_USER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+async function apiRequest(action, payload = {}, method = 'POST') {
+  const endpoint = 'api/index.php';
+  const isGet = method === 'GET';
+  const url = new URL(endpoint, window.location.href);
+  url.searchParams.set('action', action);
+  if (isGet) {
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+  }
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: isGet ? {} : { 'Content-Type': 'application/json' },
+      body: isGet ? undefined : JSON.stringify({ action, ...payload })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
 function rankingEntries() { return JSON.parse(localStorage.getItem('contaCombateRanking') || '[]'); }
+async function loadRankingFromServer(game, limit = 20) {
+  const response = await apiRequest('ranking', { game, limit }, 'GET');
+  if (!response || !response.success || !Array.isArray(response.items)) {
+    return rankingEntries();
+  }
+
+  const items = response.items.map((entry) => ({
+    name: entry.nickname || entry.name || 'Jogador 1',
+    time: Number(entry.time || entry.time_seconds || 0),
+    game: entry.game || game
+  }));
+
+  localStorage.setItem('contaCombateRanking', JSON.stringify(items.slice(0, limit)));
+  return items;
+}
 function saveRanking(name, time, game) {
   const entries = rankingEntries();
-  entries.push({ name: name || 'Jogador 1', time: Math.max(1, Math.round(time)), game });
+  const safeEntry = { name: name || 'Jogador 1', time: Math.max(1, Math.round(time)), game };
+  entries.push(safeEntry);
   entries.sort((first, second) => first.time - second.time);
   localStorage.setItem('contaCombateRanking', JSON.stringify(entries.slice(0, 20)));
+  const user = getCurrentUser();
+  if (user && user.id) {
+    apiRequest('save_ranking', { user_id: user.id, name: safeEntry.name, time: safeEntry.time, game }, 'POST').then((response) => {
+      if (response && response.success) {
+        loadRankingFromServer(game, 20);
+      }
+    });
+  }
 }
 function escapeHTML(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character])); }
 function renderRanking(element, game) {
@@ -32,6 +86,10 @@ document.addEventListener('fullscreenchange', () => {
 function setTheme(dark) {
   document.body.classList.toggle('dark-mode', dark);
   localStorage.setItem('contaCombateTheme', dark ? 'dark' : 'light');
+  const user = getCurrentUser();
+  if (user && user.id) {
+    apiRequest('settings', { user_id: user.id, theme: dark ? 'dark' : 'light' }, 'POST');
+  }
   $$('#dark-mode-button, #library-dark-mode, #memory-dark, .home-theme').forEach((button) => {
     button.setAttribute('aria-pressed', String(dark));
     button.setAttribute('aria-label', dark ? 'Ativar tema claro' : 'Ativar tema escuro');
@@ -113,6 +171,15 @@ function startMemoryGame(nickname) {
   let pairs = numbers[memoryLevel].map((value) => [value, value]);
   let firstCard = null; let locked = false; let matched = 0; let moves = 0; let score = 0; let memorySeconds = 60; let memoryTimer = null; let memoryStarted = false; let supportMode = false; let gameReady = false; let gamePaused = false; let rankingSaved = false; let memoryInitialSeconds = 60;
   const bestKey = 'contaCombateMemoryBest'; const bestScore = Number(localStorage.getItem(bestKey) || 0); $('#memory-best').textContent = bestScore;
+  const currentUser = getCurrentUser();
+  if (currentUser && currentUser.id) {
+    apiRequest('settings', { user_id: currentUser.id }, 'GET').then((response) => {
+      if (response && response.success && response.settings && Number(response.settings.memory_best) > 0) {
+        $('#memory-best').textContent = Number(response.settings.memory_best);
+        localStorage.setItem('contaCombateMemoryBest', String(response.settings.memory_best));
+      }
+    });
+  }
   let cards;
   const board = $('#memory-board');
   const timeByLevel = { easy: 45, medium: 35, hard: 25 };
@@ -166,7 +233,7 @@ function createAuthScreen() {
   if (existingAuth) existingAuth.remove();
   const auth = document.createElement('section');
   auth.className = 'auth-screen';
-  auth.innerHTML = '<div class="auth-card"><img class="auth-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><p class="eyebrow">ARENA MATEMÁTICA</p><h1 id="auth-title">Bem-vindo!</h1><p class="auth-subtitle">Entre para continuar sua jornada.</p><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-mode="login">Entrar</button><button type="button" class="auth-tab" data-auth-mode="register">Criar cadastro</button></div><form id="auth-form"><label for="auth-name" class="register-only">Seu nick</label><input id="auth-name" class="register-only" type="text" maxlength="18" placeholder="Como quer ser chamado?" autocomplete="nickname"><label for="auth-email">E-mail</label><input id="auth-email" type="email" placeholder="seu@email.com" autocomplete="email" required><label for="auth-password">Senha</label><input id="auth-password" type="password" minlength="4" placeholder="Mínimo de 4 caracteres" autocomplete="current-password" required><button class="auth-submit" type="submit">Entrar na arena <span>→</span></button><p id="auth-message" class="auth-message" role="alert"></p></form><small class="auth-note">Cadastro salvo somente neste navegador.</small></div>';
+  auth.innerHTML = '<div class="auth-card"><img class="auth-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><p class="eyebrow">ARENA MATEMÁTICA</p><h1 id="auth-title">Bem-vindo!</h1><p class="auth-subtitle">Entre para continuar sua jornada.</p><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-mode="login">Entrar</button><button type="button" class="auth-tab" data-auth-mode="register">Criar cadastro</button></div><form id="auth-form"><label for="auth-name" class="register-only">Seu nick</label><input id="auth-name" class="register-only" type="text" maxlength="18" placeholder="Como quer ser chamado?" autocomplete="nickname"><label for="auth-email">E-mail</label><input id="auth-email" type="email" placeholder="seu@email.com" autocomplete="email" required><label for="auth-password">Senha</label><input id="auth-password" type="password" minlength="4" placeholder="Mínimo de 4 caracteres" autocomplete="current-password" required><button class="auth-submit" type="submit">Entrar na arena <span>→</span></button><p id="auth-message" class="auth-message" role="alert"></p></form><small class="auth-note">Cadastro salvo no banco de dados MySQL.</small></div>';
   document.body.prepend(auth);
   if (!$('#account-button')) {
     const accountButton = document.createElement('button');
@@ -201,19 +268,59 @@ function createAuthScreen() {
     message.textContent = '';
   };
   $$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.authMode)));
-  $('#auth-form').addEventListener('submit', (event) => {
+  $('#auth-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const users = JSON.parse(localStorage.getItem('contaCombateUsers') || '[]');
     const normalizedEmail = email.value.trim().toLowerCase();
-    const user = users.find((item) => item.email === normalizedEmail);
+    const fallbackUsers = JSON.parse(localStorage.getItem('contaCombateUsers') || '[]');
     if (mode === 'register') {
-      if (user) { message.textContent = 'Este e-mail já possui cadastro.'; return; }
-      users.push({ name: name.value.trim() || 'Jogador 1', email: normalizedEmail, password: password.value });
-      localStorage.setItem('contaCombateUsers', JSON.stringify(users));
-      message.textContent = 'Cadastro criado! Agora entre na arena.';
-      setMode('login'); email.value = normalizedEmail; password.value = ''; return;
+      const response = await apiRequest('register', {
+        name: name.value.trim() || 'Jogador 1',
+        email: normalizedEmail,
+        password: password.value
+      }, 'POST');
+
+      if (response && response.success) {
+        message.textContent = 'Cadastro criado! Agora entre na arena.';
+        setMode('login');
+        email.value = normalizedEmail;
+        password.value = '';
+        return;
+      }
+
+      const user = fallbackUsers.find((item) => item.email === normalizedEmail);
+      if (user) {
+        message.textContent = 'Este e-mail já possui cadastro.';
+        return;
+      }
+      fallbackUsers.push({ name: name.value.trim() || 'Jogador 1', email: normalizedEmail, password: password.value });
+      localStorage.setItem('contaCombateUsers', JSON.stringify(fallbackUsers));
+      message.textContent = 'Cadastro criado localmente! Agora entre na arena.';
+      setMode('login');
+      email.value = normalizedEmail;
+      password.value = '';
+      return;
     }
-    if (!user || user.password !== password.value) { message.textContent = 'E-mail ou senha incorretos.'; return; }
+
+    const response = await apiRequest('login', { email: normalizedEmail, password: password.value }, 'POST');
+    if (response && response.success) {
+      const user = response.user;
+      localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
+      if (response.settings) {
+        localStorage.setItem('contaCombateTheme', response.settings.theme || 'light');
+        setTheme(response.settings.theme === 'dark');
+      }
+      $('#nickname-input').value = user.name;
+      auth.classList.add('authenticated');
+      setTimeout(() => { auth.remove(); createHomeScreen(user.name); }, 350);
+      return;
+    }
+
+    const user = fallbackUsers.find((item) => item.email === normalizedEmail);
+    if (!user || user.password !== password.value) {
+      message.textContent = 'E-mail ou senha incorretos.';
+      return;
+    }
+    localStorage.setItem(SESSION_USER_KEY, JSON.stringify({ id: Date.now(), name: user.name, email: normalizedEmail }));
     $('#nickname-input').value = user.name;
     auth.classList.add('authenticated');
     setTimeout(() => { auth.remove(); createHomeScreen(user.name); }, 350);
@@ -356,6 +463,18 @@ function createNicknameField() {
   $('#pause-button').addEventListener('click', togglePause);
   $('#training-button').addEventListener('click', () => { state.training = !state.training; $('#training-button').textContent = state.training ? 'Sair do treino' : 'Modo treino'; toast(state.training ? 'Modo treino ativado: a máquina não ataca.' : 'Batalha normal ativada.'); if (state.active) { clearTimeout(state.machineTimer); startQuestionTimer(); scheduleMachineAttack(); } });
   $('#restart-button').addEventListener('click', startGame);
+  const user = getCurrentUser();
+  if (user && user.id) {
+    apiRequest('history', { user_id: user.id }, 'GET').then((response) => {
+      if (response && response.success && Array.isArray(response.items)) {
+        const history = response.items.map((item) => ({ won: Boolean(item.won), score: Number(item.score || 0), difficulty: item.difficulty || 'easy', correct: Number(item.correct_answers || 0), date: item.played_at || new Date().toLocaleDateString('pt-BR') }));
+        localStorage.setItem('contaCombateHistory', JSON.stringify(history.slice(-20)));
+        $('#match-count').textContent = String(history.length);
+        $('#best-score').textContent = String(Math.max(0, ...history.map((match) => Number(match.score || 0))));
+        return;
+      }
+    });
+  }
   const history = JSON.parse(localStorage.getItem('contaCombateHistory') || '[]');
   $('#match-count').textContent = history.length;
   $('#best-score').textContent = Math.max(0, ...history.map((match) => match.score || 0));
@@ -364,6 +483,28 @@ function saveMatch(won) {
   const history = JSON.parse(localStorage.getItem('contaCombateHistory') || '[]');
   history.push({ won, score: state.score, difficulty: state.difficulty, correct: state.correctAnswers, date: new Date().toLocaleDateString('pt-BR') });
   localStorage.setItem('contaCombateHistory', JSON.stringify(history.slice(-20)));
+  const user = getCurrentUser();
+  if (user && user.id) {
+    apiRequest('save_match', {
+      user_id: user.id,
+      game: 'battle',
+      won: won ? 1 : 0,
+      score: state.score,
+      difficulty: state.difficulty,
+      correct_answers: state.correctAnswers
+    }, 'POST').then((response) => {
+      if (response && response.success) {
+        apiRequest('history', { user_id: user.id }, 'GET').then((historyResponse) => {
+          if (historyResponse && historyResponse.success && Array.isArray(historyResponse.items)) {
+            const matches = historyResponse.items.map((item) => ({ won: Boolean(item.won), score: Number(item.score || 0), difficulty: item.difficulty || 'easy', correct: Number(item.correct_answers || 0), date: item.played_at || new Date().toLocaleDateString('pt-BR') }));
+            localStorage.setItem('contaCombateHistory', JSON.stringify(matches.slice(-20)));
+            $('#match-count').textContent = String(matches.length);
+            $('#best-score').textContent = String(Math.max(0, ...matches.map((match) => Number(match.score || 0))));
+          }
+        });
+      }
+    });
+  }
   $('#match-count').textContent = Math.min(history.length, 20);
   $('#best-score').textContent = Math.max(0, ...history.map((match) => match.score || 0));
 }
