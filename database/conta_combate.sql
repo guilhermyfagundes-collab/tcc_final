@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(50) NOT NULL,
     email VARCHAR(180) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'student',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -41,5 +42,27 @@ CREATE TABLE IF NOT EXISTS matches (
     CONSTRAINT fk_matches_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX idx_ranking_game_time ON ranking(game, time_seconds);
-CREATE INDEX idx_matches_user_played ON matches(user_id, played_at);
+CREATE TABLE IF NOT EXISTS errors (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NULL,
+    student_name VARCHAR(50) NOT NULL,
+    question VARCHAR(120) NOT NULL,
+    student_answer VARCHAR(30) NOT NULL,
+    correct_answer VARCHAR(30) NOT NULL,
+    difficulty VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'open',
+    note VARCHAR(300) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_errors_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS questions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    difficulty VARCHAR(20) NOT NULL DEFAULT 'easy',
+    question VARCHAR(180) NOT NULL,
+    answer VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_questions_difficulty (difficulty)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

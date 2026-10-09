@@ -1,5 +1,21 @@
 .mode-grid{grid-template-columns:repeat(3,1fr)}
-
-@media(max-width:720px){
-  .mode-grid{grid-template-columns:1fr}
-}
+.difficulty-ranking-section{max-width:1180px;margin:80px auto 100px;padding:0 24px}
+.difficulty-ranking-title{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:24px}
+.difficulty-ranking-title h2{font:700 35px/1.1 Georgia,'Times New Roman',serif;margin:0}
+.difficulty-ranking-title p{margin:0;color:#607285}
+.difficulty-ranking-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.difficulty-ranking-card{padding:22px;border:1px solid #d8d9d3;border-radius:18px;background:#fffdf9;box-shadow:0 12px 35px rgba(22,50,79,.07)}
+.difficulty-ranking-card>div>span{color:#607285;font-size:10px;letter-spacing:2px;font-weight:700}
+.difficulty-ranking-card h2{margin:5px 0 17px;font:700 25px Georgia,'Times New Roman',serif}
+.difficulty-ranking-card ol{list-style:none;padding:0;margin:0;display:grid;gap:9px}
+.difficulty-ranking-card li{display:grid;grid-template-columns:25px 1fr auto;align-items:center;gap:9px;padding:10px;border-radius:10px;background:#f6f3ed;font-size:14px}
+.difficulty-ranking-card li strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.difficulty-ranking-card time{font-weight:700;color:#16324f}
+.ranking-position{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#16324f;color:white;font-size:11px}
+.difficulty-ranking-card li:first-child .ranking-position{background:#f47b63}
+.difficulty-ranking-card .ranking-empty{display:block;padding:14px;text-align:center;color:#607285}
+.difficulty-easy{border-top:5px solid #c8ef68}
+.difficulty-medium{border-top:5px solid #ffd765}
+.difficulty-hard{border-top:5px solid #f47b63}
+@media(max-width:900px){.difficulty-ranking-grid{grid-template-columns:1fr}.difficulty-ranking-title{align-items:start;flex-direction:column}}
+@media(max-width:720px){.mode-grid{grid-template-columns:1fr}.difficulty-ranking-section{margin:55px auto 70px;padding:0 16px}.difficulty-ranking-title h2{font-size:29px}}

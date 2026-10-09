@@ -1,8 +1,17 @@
+// Configuração global do jogo: número de rodadas, vida inicial do jogador e inimigo,
+// modo padrão e nome do oponente principal.
 const config = window.gameConfig || { rounds: 10, startingHealth: 100, defaultMode: 'solo', soloOpponent: 'Professor Robô' };
-const state = { difficulty: 'easy', active: false, training: false, paused: false, question: null, questionIndex: 0, streak: 0, score: 0, correctAnswers: 0, playerHealth: config.startingHealth, opponentHealth: config.startingHealth, maxOpponentHealth: config.startingHealth, machineTimer: null, questionTimer: null, questionSeconds: 0, gameStartedAt: 0, sound: true, fontLarge: false };
+
+// Estado principal da aplicação: dificuldade atual, pontuação, vida, temporizador,
+// perguntas carregadas e flags do jogo em andamento.
+const state = { difficulty: 'easy', active: false, training: false, paused: false, question: null, questionIndex: 0, streak: 0, score: 0, correctAnswers: 0, playerHealth: config.startingHealth, opponentHealth: config.startingHealth, maxOpponentHealth: config.startingHealth, machineTimer: null, questionTimer: null, questionSeconds: 0, gameStartedAt: 0, sound: true, fontLarge: false, questionBank: [] };
+
+// Chave usada para guardar o usuário autenticado no localStorage.
 const SESSION_USER_KEY = 'contaCombateAuthUser';
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+// Busca o usuário atual salvo no navegador para manter a sessão ativa.
 function getCurrentUser() {
   try {
     return JSON.parse(localStorage.getItem(SESSION_USER_KEY) || 'null');
@@ -10,9 +19,13 @@ function getCurrentUser() {
     return null;
   }
 }
+
+// Função central de comunicação com a API do projeto.
+// Recebe a ação, envia payload e retorna a resposta JSON da API.
 async function apiRequest(action, payload = {}, method = 'POST') {
   const endpoint = 'api/index.php';
   const isGet = method === 'GET';
+  const isDelete = method === 'DELETE';
   const url = new URL(endpoint, window.location.href);
   url.searchParams.set('action', action);
   if (isGet) {
@@ -23,7 +36,7 @@ async function apiRequest(action, payload = {}, method = 'POST') {
   try {
     const response = await fetch(url, {
       method,
-      headers: isGet ? {} : { 'Content-Type': 'application/json' },
+      headers: isGet || isDelete ? {} : { 'Content-Type': 'application/json' },
       body: isGet ? undefined : JSON.stringify({ action, ...payload })
     });
     if (!response.ok) return null;
@@ -32,7 +45,10 @@ async function apiRequest(action, payload = {}, method = 'POST') {
     return null;
   }
 }
+// Recupera o ranking salvo localmente em storage para exibir resultados do usuário.
 function rankingEntries() { return JSON.parse(localStorage.getItem('contaCombateRanking') || '[]'); }
+
+// Carrega o ranking do servidor, salva no navegador e retorna os melhores tempos.
 async function loadRankingFromServer(game, limit = 20) {
   const response = await apiRequest('ranking', { game, limit }, 'GET');
   if (!response || !response.success || !Array.isArray(response.items)) {
@@ -48,6 +64,7 @@ async function loadRankingFromServer(game, limit = 20) {
   localStorage.setItem('contaCombateRanking', JSON.stringify(items.slice(0, limit)));
   return items;
 }
+// Salva um novo resultado no ranking local e também envia para o backend quando tiver usuário logado.
 function saveRanking(name, time, game) {
   const entries = rankingEntries();
   const safeEntry = { name: name || 'Jogador 1', time: Math.max(1, Math.round(time)), game };
@@ -63,12 +80,38 @@ function saveRanking(name, time, game) {
     });
   }
 }
-function escapeHTML(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character])); }
+
+// Escapa caracteres HTML para evitar injeção de texto nas telas renderizadas dinamicamente.
+function escapeHTML(value) { return String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
+
+// Renderiza a tabela de ranking para uma tela específica (batalha ou memória).
 function renderRanking(element, game) {
   if (!element) return;
   const entries = rankingEntries().filter((entry) => entry.game === game).slice(0, 3);
   element.innerHTML = `<div class="ranking-heading"><span class="ranking-kicker">RANKING</span><strong>Melhores tempos</strong></div>${entries.length ? `<ol>${entries.map((entry, index) => `<li class="ranking-place place-${index + 1}"><span class="ranking-crown" aria-label="${index + 1}º lugar">♛</span><span class="ranking-name">${escapeHTML(entry.name)}</span><time>${entry.time}s</time></li>`).join('')}</ol>` : '<p class="ranking-empty">Complete uma partida para entrar no ranking.</p>'}`;
 }
+// Gera o identificador do ranking de acordo com a dificuldade selecionada.
+function battleRankingGame() {
+  return `battle-${state.difficulty}`;
+}
+
+// Cria blocos de ranking por dificuldade para visualizar os melhores tempos por modo.
+function renderDifficultyRanking() {
+  const existing = $('#difficulty-ranking');
+  if (existing) existing.remove();
+  const section = document.createElement('section');
+  section.id = 'difficulty-ranking';
+  section.className = 'difficulty-ranking-section';
+  const labels = { easy: 'Fácil', medium: 'Médio', hard: 'Difícil' };
+  const cards = Object.entries(labels).map(([difficulty, label]) => {
+    const entries = rankingEntries().filter((entry) => entry.game === `battle-${difficulty}`).slice(0, 3);
+    const rows = entries.length ? entries.map((entry, index) => `<li><span class="ranking-position">${index + 1}</span><strong>${escapeHTML(entry.name)}</strong><time>${entry.time}s</time></li>`).join('') : '<li class="ranking-empty">Ainda não há resultados.</li>';
+    return `<article class="difficulty-ranking-card difficulty-${difficulty}"><div><span>RANKING</span><h2>${label}</h2></div><ol>${rows}</ol></article>`;
+  }).join('');
+  section.innerHTML = `<div class="difficulty-ranking-title"><div><span class="eyebrow">RANKING POR DIFICULDADES</span><h2>Melhores resultados</h2></div><p>Os tempos mais rápidos de cada modo.</p></div><div class="difficulty-ranking-grid">${cards}</div>`;
+  $('.mode-section').insertAdjacentElement('afterend', section);
+}
+// Alterna entre tela cheia e modo normal para melhorar a imersão do jogo.
 async function toggleFullscreen(button) {
   if (document.fullscreenElement) await document.exitFullscreen();
   else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
@@ -76,6 +119,7 @@ async function toggleFullscreen(button) {
   button.textContent = button.id === 'fullscreen-button' ? '⛶' : active ? '⛶ Sair da tela cheia' : '⛶ Tela cheia';
   button.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ativar tela cheia');
 }
+
 document.addEventListener('fullscreenchange', () => {
   $$('#fullscreen-button, #memory-fullscreen').forEach((button) => {
     const active = Boolean(document.fullscreenElement);
@@ -83,6 +127,7 @@ document.addEventListener('fullscreenchange', () => {
     button.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ativar tela cheia');
   });
 });
+// Aplica o tema escuro/claro em toda a interface e salva a preferência do usuário.
 function setTheme(dark) {
   document.body.classList.toggle('dark-mode', dark);
   localStorage.setItem('contaCombateTheme', dark ? 'dark' : 'light');
@@ -100,39 +145,192 @@ function setTheme(dark) {
 }
 setTheme(localStorage.getItem('contaCombateTheme') === 'dark');
 
+// Remove telas temporárias como a biblioteca e o jogo de memória para evitar sobreposição.
+function clearTransientScreens() {
+  document.querySelectorAll('.game-library, .memory-screen').forEach((element) => element.remove());
+  if (document.body) {
+    document.body.classList.remove('library-active', 'memory-active');
+  }
+}
+
+// Cria a biblioteca de jogos, onde o usuário escolhe entre o jogo principal e o jogo secundário.
 function createGameLibrary(nickname) {
   const existing = $('.game-library');
-  if (existing) existing.remove();
+  if (existing) {
+    existing.remove();
+  }
+  if (document.querySelector('.memory-screen')) {
+    document.querySelector('.memory-screen').remove();
+  }
+  if (document.body && document.body.classList.contains('library-active')) {
+    return;
+  }
+  clearTransientScreens();
+  if (!document.body) return;
   document.body.classList.add('library-active');
   const library = document.createElement('section');
   library.className = 'game-library';
-  library.innerHTML = `<div class="library-card"><div class="library-top"><div><p class="eyebrow">BIBLIOTECA GUILF TECH</p><h1>Escolha sua missão</h1><p>Olá, ${nickname}! Qual desafio você quer jogar?</p></div><div class="library-top-actions"><button type="button" id="library-dark-mode" class="library-theme-button" aria-pressed="false">☾ Tema escuro</button><button type="button" class="library-close" aria-label="Fechar biblioteca">×</button></div></div><div class="library-games"><article class="library-game featured"><img src="assets/math-book.svg" alt="Livro de matemática"><div><span class="game-tag">JOGO PRINCIPAL</span><h2>Conta & Combate</h2><p>Resolva contas, ataque a máquina e conquiste a vitória.</p><button type="button" data-game="battle">Jogar agora <span>→</span></button></div></article><article class="library-game memory-game"><img src="assets/memory-cards.svg" alt="Cartas numéricas do jogo da memória"><div><span class="game-tag">JOGO SECUNDÁRIO</span><h2>Memória dos Números</h2><p>Encontre os pares de números iguais.</p><button type="button" data-game="memory">Jogar memória <span>→</span></button></div></article></div><div class="library-footer"><span>Seu progresso fica salvo neste navegador.</span><button type="button" class="account-library-button">Trocar conta</button></div></div>`;
+  library.innerHTML = `<div class="library-card"><div class="library-top"><div><p class="eyebrow">BIBLIOTECA GUILF TECH</p><h1>Escolha sua missão</h1><p>Olá, ${nickname}! Qual desafio você quer jogar?</p></div><div class="library-top-actions"><button type="button" id="library-dark-mode" class="library-theme-button" aria-pressed="false">☾ Tema escuro</button><button type="button" class="library-close" aria-label="Fechar biblioteca">×</button></div></div><div class="library-games"><article class="library-game featured"><div><span class="game-tag">JOGO PRINCIPAL</span><h2>Conta & Combate</h2><p>Resolva contas, ataque a máquina e conquiste a vitória.</p><button type="button" data-game="battle">Jogar agora <span>→</span></button></div></article><article class="library-game memory-game"><div><span class="game-tag">JOGO SECUNDÁRIO</span><h2>Memória dos Números</h2><p>Encontre os pares de números iguais.</p><button type="button" data-game="memory">Jogar memória <span>→</span></button></div></article></div><div class="library-footer"><span>Seu progresso fica salvo neste navegador.</span><button type="button" class="account-library-button">Trocar conta</button></div></div>`;
   document.body.prepend(library);
   setTheme(document.body.classList.contains('dark-mode'));
-  const close = () => { library.remove(); document.body.classList.remove('library-active'); };
+  const close = () => {
+    library.remove();
+    if (document.body) {
+      document.body.classList.remove('library-active');
+    }
+  };
   library.querySelector('.library-close').addEventListener('click', close);
   library.querySelector('#library-dark-mode').addEventListener('click', () => setTheme(!document.body.classList.contains('dark-mode')));
   library.querySelector('[data-game="battle"]').addEventListener('click', close);
-  library.querySelector('[data-game="memory"]').addEventListener('click', () => { close(); startMemoryGame(nickname); });
+  library.querySelector('[data-game="memory"]').addEventListener('click', () => {
+    close();
+    clearTransientScreens();
+    startMemoryGame(nickname);
+  });
   library.querySelector('.account-library-button').addEventListener('click', () => { close(); createAuthScreen(); });
 }
 
-function createHomeScreen(nickname) {
+// Cria a tela inicial do painel do usuário com os jogos principais e ações rápidas.
+function createHomeScreen(nickname, role = 'student') {
   const existing = $('.home-screen');
   if (existing) existing.remove();
   document.body.classList.add('home-active');
   const home = document.createElement('section');
   home.className = 'home-screen';
-  home.innerHTML = `<div class="home-card"><div class="home-heading"><img class="home-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><span class="home-brand-name">GUILF TECH <i>/</i> CONTA &amp; COMBATE</span></div><div class="home-intro"><p class="eyebrow">ARENA MATEMÁTICA</p><h1>Olá, ${escapeHTML(nickname)}!</h1><p class="home-motto">"Cada desafio é uma nova chance de mostrar o que você consegue."</p><p class="home-subtitle">Escolha sua aventura e dê o primeiro passo.</p></div><div class="home-games"><button type="button" class="home-game home-battle"><img src="assets/math-book.svg" alt=""><span><strong>Conta & Combate</strong><small>Resolva desafios e enfrente a máquina.</small></span><b>Jogar →</b></button><button type="button" class="home-game home-memory"><img src="assets/memory-cards.svg" alt=""><span><strong>Memória dos Números</strong><small>Encontre os pares antes do tempo acabar.</small></span><b>Jogar →</b></button></div><div class="home-actions"><button type="button" class="home-library">Ver biblioteca</button><button type="button" class="home-theme">☾ Tema escuro</button></div></div>`;
+  const panelLabel = role === 'admin' ? 'Painel do Admin' : 'Painel do Professor';
+  const professorButton = role === 'professor' || role === 'admin' ? `<button type="button" class="home-professor">${panelLabel}</button>` : '';
+  home.innerHTML = `<div class="home-card"><div class="home-heading"><img class="home-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><span class="home-brand-name">GUILF TECH <i>/</i> CONTA &amp; COMBATE</span></div><div class="home-intro"><p class="eyebrow">ARENA MATEMÁTICA</p><h1>Olá, ${escapeHTML(nickname)}!</h1><p class="home-motto">"Cada desafio é uma nova chance de mostrar o que você consegue."</p><p class="home-subtitle">Escolha sua aventura e dê o primeiro passo.</p></div><div class="home-games"><button type="button" class="home-game home-battle"><img src="assets/math-book.svg" alt=""><span><strong>Conta & Combate</strong><small>Resolva desafios e enfrente a máquina.</small></span><b>Jogar →</b></button><button type="button" class="home-game home-memory"><img src="assets/memory-cards.svg" alt=""><span><strong>Memória dos Números</strong><small>Encontre os pares antes do tempo acabar.</small></span><b>Jogar →</b></button></div><div class="home-actions"><button type="button" class="home-library">Ver biblioteca</button>${professorButton}<button type="button" class="home-theme">☾ Tema escuro</button></div></div>`;
   document.body.prepend(home);
+  loadQuestionBank();
   const leave = () => { home.remove(); document.body.classList.remove('home-active'); };
   home.querySelector('.home-battle').addEventListener('click', leave);
-  home.querySelector('.home-memory').addEventListener('click', () => { leave(); createGameLibrary(nickname); });
+  home.querySelector('.home-memory').addEventListener('click', () => { leave(); clearTransientScreens(); startMemoryGame(nickname); });
   home.querySelector('.home-library').addEventListener('click', () => { leave(); createGameLibrary(nickname); });
+  if (role === 'professor' || role === 'admin') home.querySelector('.home-professor').addEventListener('click', () => { leave(); createProfessorPanel(); });
   home.querySelector('.home-theme').addEventListener('click', () => setTheme(!document.body.classList.contains('dark-mode')));
 }
 
+// Busca o banco de perguntas no backend para alimentar o jogo principal.
+async function loadQuestionBank() {
+  const response = await apiRequest('questions', {}, 'GET');
+  if (!response || !response.success || !Array.isArray(response.items)) return [];
+  state.questionBank = response.items.map((item) => ({
+    id: Number(item.id), difficulty: item.difficulty, question: String(item.question), answer: Number(item.answer),
+    display: String(item.question), speech: String(item.question)
+  }));
+  return state.questionBank;
+}
+
+// Salva uma questão nova no backend, usada pelo painel do professor/admin.
+async function saveQuestion(item) {
+  const payload = { difficulty: item.difficulty, question: item.question, answer: Number(item.answer) };
+  if (item.id) payload.id = item.id;
+  return apiRequest('questions', payload, 'POST');
+}
+
+// Cria o painel do professor/admin para visualizar erros e gerenciar perguntas.
+function createProfessorPanel() {
+  const existing = $('.professor-panel');
+  if (existing) { existing.remove(); return; }
+  const user = getCurrentUser();
+  if (!user || !['professor', 'admin'].includes(user.role)) return;
+  const isAdmin = user.role === 'admin';
+  const panel = document.createElement('section');
+  panel.className = 'professor-panel';
+  panel.innerHTML = `<div class="professor-card"><header><div><p class="eyebrow">ÁREA DOCENTE</p><h1>${isAdmin ? 'Painel do Admin' : 'Painel do Professor'}</h1><p>${isAdmin ? 'Gerencie perguntas, erros e conteúdo do jogo.' : 'Consulte e gerencie os erros dos alunos.'}</p></div><button type="button" class="professor-close" aria-label="Fechar painel">×</button></header><div class="professor-controls"><label for="professor-search">Buscar</label><input id="professor-search" type="search" placeholder="Aluno, conta ou resposta"><button type="button" id="professor-refresh">Atualizar</button></div><div class="professor-error-tabs"><button type="button" class="professor-error-tab active" data-admin-tab="errors">Erros</button>${isAdmin ? '<button type="button" class="professor-error-tab" data-admin-tab="questions">Perguntas</button>' : ''}</div>${isAdmin ? `<form class="professor-question-form" id="question-form"><label for="question-difficulty">Dificuldade</label><select id="question-difficulty"><option value="easy">Fácil</option><option value="medium">Médio</option><option value="hard">Difícil</option></select><label for="question-text">Pergunta</label><input id="question-text" type="text" maxlength="180" placeholder="Ex.: 6 × 4 = ?" required><label for="question-answer">Resposta</label><input id="question-answer" type="number" step="any" required><button type="submit">Criar pergunta</button></form><div id="question-list" class="professor-question-list"></div>` : ''}<div id="professor-errors" class="professor-errors"><p class="professor-loading">Carregando erros...</p></div></div>`;
+  document.body.prepend(panel);
+  const render = async () => {
+    const response = await apiRequest('errors', { user_id: user.id, search: $('#professor-search').value }, 'GET');
+    const list = $('#professor-errors');
+    if (!response || !response.success || !Array.isArray(response.items)) {
+      list.innerHTML = '<p class="professor-empty">Não foi possível carregar os erros.</p>';
+      return;
+    }
+    if (!response.items.length) {
+      list.innerHTML = '<p class="professor-empty">Nenhum erro registrado.</p>';
+      return;
+    }
+    list.innerHTML = response.items.map((item) => `<article class="professor-error"><div><span class="professor-status status-${item.status}">${item.status}</span><strong>${escapeHTML(item.student_name)}</strong><small>${escapeHTML(item.difficulty)} · ${new Date(item.created_at).toLocaleDateString('pt-BR')}</small></div><p><b>Conta:</b> ${escapeHTML(item.question)}</p><p><b>Aluno:</b> ${escapeHTML(item.student_answer)} · <b>Correto:</b> ${escapeHTML(item.correct_answer)}</p><div class="professor-error-actions"><select data-status="${item.id}"><option value="open" ${item.status === 'open' ? 'selected' : ''}>Aberto</option><option value="fixed" ${item.status === 'fixed' ? 'selected' : ''}>Corrigido</option><option value="closed" ${item.status === 'closed' ? 'selected' : ''}>Fechado</option></select><button type="button" data-delete="${item.id}">Excluir</button></div></article>`).join('');
+    list.querySelectorAll('[data-status]').forEach((select) => select.addEventListener('change', async () => {
+      await apiRequest('error_update', { id: Number(select.dataset.status), user_id: user.id, status: select.value, note: '' }, 'POST');
+      render();
+    }));
+    list.querySelectorAll('[data-delete]').forEach((button) => button.addEventListener('click', async () => {
+      if (!window.confirm('Excluir este registro de erro?')) return;
+      await apiRequest('error_delete', { id: Number(button.dataset.delete), user_id: user.id }, 'POST');
+      render();
+    }));
+  };
+  const renderQuestions = async () => {
+    const questions = await loadQuestionBank();
+    const list = $('#question-list');
+    if (!questions.length) {
+      list.innerHTML = '<p class="professor-empty">Nenhuma pergunta cadastrada.</p>';
+      return;
+    }
+    list.innerHTML = questions.map((item) => `<article class="professor-question"><div><p>${escapeHTML(item.question)} = ${escapeHTML(item.answer)}</p><small>${escapeHTML(item.difficulty)}</small></div><div class="professor-question-actions"><button type="button" data-edit-question="${item.id}">Editar</button><button type="button" class="delete" data-delete-question="${item.id}">Excluir</button></div></article>`).join('');
+    list.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => {
+      const item = questions.find((question) => question.id === Number(button.dataset.editQuestion));
+      if (!item) return;
+      $('#question-difficulty').value = item.difficulty;
+      $('#question-text').value = item.question;
+      $('#question-answer').value = item.answer;
+      $('#question-form').dataset.editId = String(item.id);
+      $('#question-form button').textContent = 'Atualizar pergunta';
+    }));
+    list.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', async () => {
+      if (!window.confirm('Excluir esta pergunta do jogo?')) return;
+      await apiRequest('questions', { id: Number(button.dataset.deleteQuestion) }, 'DELETE');
+      renderQuestions();
+    }));
+  };
+  const showTab = (tab) => {
+    $$('.professor-error-tab').forEach((button) => button.classList.toggle('active', button.dataset.adminTab === tab));
+    const isQuestions = isAdmin && tab === 'questions';
+    $('#professor-errors').hidden = isQuestions;
+    $('#question-form').hidden = !isQuestions;
+    $('#question-list').hidden = !isQuestions;
+    if (isQuestions) renderQuestions();
+    else render();
+  };
+  panel.querySelector('.professor-close').addEventListener('click', () => panel.remove());
+  panel.querySelector('#professor-refresh').addEventListener('click', () => isAdmin ? renderQuestions() : render());
+  panel.querySelector('#professor-search').addEventListener('input', render);
+  panel.querySelectorAll('.professor-error-tab').forEach((button) => button.addEventListener('click', () => showTab(button.dataset.adminTab)));
+  if (isAdmin) {
+    panel.querySelector('#question-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = panel.querySelector('#question-form');
+      const item = { id: Number(form.dataset.editId || 0), difficulty: $('#question-difficulty').value, question: $('#question-text').value.trim(), answer: Number($('#question-answer').value) };
+      if (!item.question || !Number.isFinite(item.answer)) return toast('Informe uma pergunta e uma resposta válidas.');
+      await saveQuestion(item);
+      form.reset();
+      form.dataset.editId = '';
+      form.querySelector('button').textContent = 'Criar pergunta';
+      renderQuestions();
+      toast(item.id ? 'Pergunta atualizada.' : 'Pergunta criada.');
+    });
+  }
+  document.body.prepend(panel);
+  if (isAdmin) {
+    $('#question-form').hidden = true;
+    $('#question-list').hidden = true;
+  }
+  render();
+  if (isAdmin) renderQuestions();
+}
+
+// Inicia o jogo de memória, montando a tela de cartas, ranking e controles do jogo.
 function startMemoryGame(nickname) {
+  const existingMemory = document.querySelector('.memory-screen');
+  if (existingMemory) {
+    existingMemory.remove();
+  }
+  if (document.querySelector('.game-library')) {
+    document.querySelector('.game-library').remove();
+  }
+  clearTransientScreens();
+  if (!document.body) return;
   document.body.classList.add('memory-active');
   const overlay = document.createElement('section');
   overlay.className = 'memory-screen';
@@ -233,7 +431,8 @@ function createAuthScreen() {
   if (existingAuth) existingAuth.remove();
   const auth = document.createElement('section');
   auth.className = 'auth-screen';
-  auth.innerHTML = '<div class="auth-card"><img class="auth-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><p class="eyebrow">ARENA MATEMÁTICA</p><h1 id="auth-title">Bem-vindo!</h1><p class="auth-subtitle">Entre para continuar sua jornada.</p><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-mode="login">Entrar</button><button type="button" class="auth-tab" data-auth-mode="register">Criar cadastro</button></div><form id="auth-form"><label for="auth-name" class="register-only">Seu nick</label><input id="auth-name" class="register-only" type="text" maxlength="18" placeholder="Como quer ser chamado?" autocomplete="nickname"><label for="auth-email">E-mail</label><input id="auth-email" type="email" placeholder="seu@email.com" autocomplete="email" required><label for="auth-password">Senha</label><input id="auth-password" type="password" minlength="4" placeholder="Mínimo de 4 caracteres" autocomplete="current-password" required><button class="auth-submit" type="submit">Entrar na arena <span>→</span></button><p id="auth-message" class="auth-message" role="alert"></p></form><small class="auth-note">Cadastro salvo no banco de dados MySQL.</small></div>';
+  // Tela de autenticação com login, cadastro e recuperação de senha.
+  auth.innerHTML = '<div class="auth-card"><img class="auth-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><p class="eyebrow">ARENA MATEMÁTICA</p><h1 id="auth-title">Bem-vindo!</h1><p class="auth-subtitle">Entre para continuar sua jornada.</p><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-mode="login">Entrar</button><button type="button" class="auth-tab" data-auth-mode="register">Criar cadastro</button></div><form id="auth-form"><label for="auth-name" class="register-only">Seu nick</label><input id="auth-name" class="register-only" type="text" maxlength="18" placeholder="Como quer ser chamado?" autocomplete="nickname"><label for="auth-email">E-mail</label><input id="auth-email" type="email" placeholder="seu@email.com" autocomplete="email" required><label for="auth-password">Senha</label><input id="auth-password" type="password" minlength="4" placeholder="Mínimo de 4 caracteres" autocomplete="current-password" required><label for="auth-role">Tipo de conta</label><select id="auth-role"><option value="student">Aluno</option><option value="professor">Professor</option><option value="admin">Admin</option></select><label for="auth-professor-code" class="register-only professor-code-field">Código de Professor</label><input id="auth-professor-code" class="register-only professor-code-field" type="password" placeholder="Digite o código" autocomplete="off"><button class="auth-submit" type="submit">Entrar na arena <span>→</span></button><button type="button" class="auth-forgot-password" id="auth-forgot-password">Esqueci minha senha</button><p id="auth-message" class="auth-message" role="alert"></p></form><small class="auth-note">Cadastro salvo no banco de dados MySQL.</small></div>';
   document.body.prepend(auth);
   if (!$('#account-button')) {
     const accountButton = document.createElement('button');
@@ -254,6 +453,8 @@ function createAuthScreen() {
   const name = $('#auth-name');
   const email = $('#auth-email');
   const password = $('#auth-password');
+  const role = $('#auth-role');
+  const professorCode = $('#auth-professor-code');
   const message = $('#auth-message');
   const setMode = (nextMode) => {
     mode = nextMode;
@@ -262,12 +463,52 @@ function createAuthScreen() {
     $$('.auth-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.authMode === mode));
     $$('.register-only').forEach((field) => field.classList.toggle('visible', register));
     name.required = register;
+    role.required = true;
+    professorCode.closest('.professor-code-field').classList.toggle('visible', register && role.value === 'professor');
     $('#auth-title').textContent = register ? 'Crie sua conta' : 'Bem-vindo!';
     $('.auth-subtitle').textContent = register ? 'Prepare seu perfil para a próxima batalha.' : 'Entre para continuar sua jornada.';
     $('.auth-submit').innerHTML = register ? 'Criar conta <span>→</span>' : 'Entrar na arena <span>→</span>';
     message.textContent = '';
   };
   $$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.authMode)));
+  role.addEventListener('change', () => {
+    professorCode.closest('.professor-code-field').classList.toggle('visible', role.value === 'professor');
+  });
+  const sendPasswordResetEmail = (userEmail) => {
+    const safeEmail = String(userEmail || '').trim().toLowerCase();
+    if (!safeEmail || !safeEmail.includes('@')) {
+      message.textContent = 'Digite um e-mail válido para receber a recuperação.';
+      return;
+    }
+
+    const subject = encodeURIComponent('Recuperação de senha - Conta & Combate');
+    const body = encodeURIComponent(
+      'Olá!\n\nRecebemos sua solicitação de recuperação de senha.\n\nPara redefinir sua senha, siga as instruções do painel de acesso do jogo.\n\nSe você não fez essa solicitação, ignore esta mensagem.\n\nEquipe Conta & Combate'
+    );
+
+    window.location.href = `mailto:${safeEmail}?subject=${subject}&body=${body}`;
+    message.textContent = 'Mensagem de recuperação preparada. Verifique seu e-mail e siga as instruções.';
+  };
+
+  const forgotPasswordButton = $('#auth-forgot-password');
+  forgotPasswordButton.addEventListener('click', () => {
+    const safeEmail = email.value.trim().toLowerCase();
+    if (!safeEmail) {
+      message.textContent = 'Digite seu e-mail antes de solicitar a recuperação.';
+      email.focus();
+      return;
+    }
+
+    const fallbackUsers = JSON.parse(localStorage.getItem('contaCombateUsers') || '[]');
+    const exists = fallbackUsers.some((item) => String(item.email || '').trim().toLowerCase() === safeEmail);
+    if (!exists) {
+      message.textContent = 'Não encontramos esse e-mail em nossa base. Verifique se o endereço está correto.';
+      return;
+    }
+
+    sendPasswordResetEmail(safeEmail);
+  });
+
   $('#auth-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const normalizedEmail = email.value.trim().toLowerCase();
@@ -276,14 +517,20 @@ function createAuthScreen() {
       const response = await apiRequest('register', {
         name: name.value.trim() || 'Jogador 1',
         email: normalizedEmail,
-        password: password.value
+        password: password.value,
+        role: role.value,
+        professor_code: role.value === 'professor' ? professorCode.value : ''
       }, 'POST');
 
-      if (response && response.success) {
-        message.textContent = 'Cadastro criado! Agora entre na arena.';
-        setMode('login');
-        email.value = normalizedEmail;
-        password.value = '';
+      if (response) {
+        if (response.success) {
+          message.textContent = 'Cadastro criado! Agora entre na arena.';
+          setMode('login');
+          email.value = normalizedEmail;
+          password.value = '';
+          return;
+        }
+        message.textContent = response.message || 'Não foi possível criar a conta.';
         return;
       }
 
@@ -301,7 +548,11 @@ function createAuthScreen() {
       return;
     }
 
-    const response = await apiRequest('login', { email: normalizedEmail, password: password.value }, 'POST');
+    const response = await apiRequest('login', {
+      email: normalizedEmail,
+      password: password.value,
+      role: role.value
+    }, 'POST');
     if (response && response.success) {
       const user = response.user;
       localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
@@ -311,7 +562,7 @@ function createAuthScreen() {
       }
       $('#nickname-input').value = user.name;
       auth.classList.add('authenticated');
-      setTimeout(() => { auth.remove(); createHomeScreen(user.name); }, 350);
+      setTimeout(() => { auth.remove(); createHomeScreen(user.name, user.role || 'student'); }, 350);
       return;
     }
 
@@ -320,10 +571,10 @@ function createAuthScreen() {
       message.textContent = 'E-mail ou senha incorretos.';
       return;
     }
-    localStorage.setItem(SESSION_USER_KEY, JSON.stringify({ id: Date.now(), name: user.name, email: normalizedEmail }));
+    localStorage.setItem(SESSION_USER_KEY, JSON.stringify({ id: Date.now(), name: user.name, email: normalizedEmail, role: 'student' }));
     $('#nickname-input').value = user.name;
     auth.classList.add('authenticated');
-    setTimeout(() => { auth.remove(); createHomeScreen(user.name); }, 350);
+    setTimeout(() => { auth.remove(); createHomeScreen(user.name, 'student'); }, 350);
   });
 }
 function createAccessibilityButton() {
@@ -346,9 +597,13 @@ function createAccessibilityButton() {
   $('.top-actions').prepend(button);
 }
 
-function newQuestion() {
+async function newQuestion() {
+  const bank = state.questionBank.filter((item) => item.difficulty === state.difficulty);
   let display; let answer; let speech;
-  if (state.difficulty === 'easy') {
+  if (bank.length > 0) {
+    const item = bank[Math.floor(Math.random() * bank.length)];
+    display = item.display; answer = item.answer; speech = item.speech;
+  } else if (state.difficulty === 'easy') {
     const first = Math.floor(Math.random() * 9) + 2;
     const second = Math.floor(Math.random() * 9) + 2;
     answer = first * second; display = `${first} × ${second} = ?`; speech = `Quanto é ${first} vezes ${second}?`;
@@ -369,7 +624,7 @@ function newQuestion() {
     display = `${coefficient}x + ${constant} = ${result}`;
     speech = `Qual é o valor de x? ${coefficient} vezes x mais ${constant} é igual a ${result}.`;
   }
-  state.question = { answer, speech };
+  state.question = { answer, speech, display };
   $('#equation').textContent = display;
   $('#equation').setAttribute('aria-label', speech);
   $('#question-number').textContent = String(state.questionIndex + 1).padStart(2, '0');
@@ -529,6 +784,17 @@ function submitAnswer(value) {
   } else {
     state.streak = 0;
     const machineDamage = machineAttack();
+    const user = getCurrentUser();
+    if (user && user.id) {
+      apiRequest('save_error', {
+        user_id: user.id,
+        student_name: $('#player-name').textContent || 'Jogador 1',
+        question: state.question.display || state.question.speech || 'Conta matemática',
+        student_answer: String(value),
+        correct_answer: String(state.question.answer),
+        difficulty: state.difficulty
+      }, 'POST');
+    }
     showFeedback(`Quase! A resposta era ${state.question.answer}.`, 'error');
     animate('#answer-feedback', 'feedback-shake');
     speak(`A resposta correta era ${state.question.answer}.`);
@@ -557,8 +823,10 @@ function endGame() {
     toast(`Parabéns, ${nickname}! Você venceu!`);
   }
   saveMatch(won);
-  saveRanking(nickname, (Date.now() - state.gameStartedAt) / 1000, 'battle');
-  renderRanking($('.main-ranking'), 'battle');
+  const rankingGame = battleRankingGame();
+  saveRanking(nickname, (Date.now() - state.gameStartedAt) / 1000, rankingGame);
+  renderRanking($('.main-ranking'), rankingGame);
+  renderDifficultyRanking();
   showFinalReport(won);
   $('#start-button').textContent = 'Jogar novamente →';
   speak(won ? 'Parabéns! Você venceu a batalha.' : 'Fim de jogo. Tente novamente.');
@@ -588,7 +856,7 @@ function createMainGameActions() {
   const ranking = document.createElement('section');
   ranking.className = 'main-ranking ranking-panel';
   arena.appendChild(ranking);
-  renderRanking(ranking, 'battle');
+  renderRanking(ranking, battleRankingGame());
   actions.querySelector('.main-play-again').addEventListener('click', startGame);
   actions.querySelector('.main-library-link').addEventListener('click', () => { if (state.active) { state.active = false; clearTimeout(state.machineTimer); clearInterval(state.questionTimer); setInteractive(false); } createGameLibrary($('#player-name').textContent || 'Jogador 1'); });
 }
@@ -609,6 +877,7 @@ createNicknameField();
 addInterfaceImages();
 createHeroBrand();
 createMainGameActions();
+renderDifficultyRanking();
 setCharacter(state.character);
 $('.character-robot').innerHTML = '<img src="assets/character-robo.svg" alt="Professor Robô">';
 createAuthScreen();
