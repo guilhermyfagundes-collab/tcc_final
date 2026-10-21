@@ -1,7 +1,7 @@
 <?php
 return [
     'title' => 'Conta & Combate',
-    'grade' => '2º ano do Ensino Fundamental',
+    'grade' => 'Ensino Fundamental II',
     'rounds' => 10,
     'startingHealth' => 100,
     'soloOpponent' => 'Professor Robô',

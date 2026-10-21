@@ -1,22 +1,36 @@
 <?php
+session_set_cookie_params([
+    'httponly' => true,
+    'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+    'samesite' => 'Lax',
+]);
 session_start();
 require __DIR__ . '/../config/db.php';
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
-
 function jsonResponse($status, $payload): void
 {
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function authenticatedUser(PDO $pdo): array
+{
+    $userId = (int) ($_SESSION['user_id'] ?? 0);
+    if ($userId <= 0) {
+        jsonResponse(401, ['success' => false, 'message' => 'Faça login para continuar.']);
+    }
+
+    $stmt = $pdo->prepare('SELECT id, name, email, role FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute(['id' => $userId]);
+    $user = $stmt->fetch();
+    if (!$user) {
+        $_SESSION = [];
+        session_destroy();
+        jsonResponse(401, ['success' => false, 'message' => 'Sua sessão expirou. Entre novamente.']);
+    }
+    return $user;
 }
 
 function readJsonBody(): array
@@ -41,18 +55,18 @@ try {
         $password = (string) ($payload['password'] ?? '');
         $role = trim((string) ($payload['role'] ?? 'student'));
         $professorCode = trim((string) ($payload['professor_code'] ?? ''));
-        $configuredProfessorCode = getenv('PROFESSOR_ACCESS_CODE') ?: 'professor2026';
-        if ($email === '' || $password === '') {
-            jsonResponse(400, ['success' => false, 'message' => 'E-mail e senha são obrigatórios.']);
+        $configuredProfessorCode = getenv('PROFESSOR_ACCESS_CODE') ?: '';
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '' || $name === '' || mb_strlen($name) > 50) {
+            jsonResponse(400, ['success' => false, 'message' => 'Informe nome, e-mail válido e senha.']);
         }
-        if (!in_array($role, ['student', 'professor', 'admin'], true)) {
+        if (strlen($password) < 8) {
+            jsonResponse(400, ['success' => false, 'message' => 'A senha deve ter pelo menos 8 caracteres.']);
+        }
+        if (!in_array($role, ['student', 'professor'], true)) {
             jsonResponse(400, ['success' => false, 'message' => 'O tipo de conta é inválido.']);
         }
-        if ($role === 'professor' && $professorCode !== $configuredProfessorCode) {
+        if ($role === 'professor' && ($configuredProfessorCode === '' || !hash_equals($configuredProfessorCode, $professorCode))) {
             jsonResponse(403, ['success' => false, 'message' => 'Código de Professor inválido.']);
-        }
-        if ($role === 'admin' && $password !== '12345') {
-            jsonResponse(403, ['success' => false, 'message' => 'A senha de Admin deve ser 12345.']);
         }
 
         $exists = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
@@ -63,7 +77,7 @@ try {
 
         $stmt = $pdo->prepare('INSERT INTO users (name, email, password, role) VALUES (:name, :email, :password, :role)');
         $stmt->execute([
-            'name' => $name !== '' ? $name : 'Jogador 1',
+            'name' => $name,
             'email' => $email,
             'password' => password_hash($password, PASSWORD_DEFAULT),
             'role' => $role,
@@ -79,6 +93,9 @@ try {
         $email = strtolower(trim((string) ($payload['email'] ?? '')));
         $password = (string) ($payload['password'] ?? '');
         $role = trim((string) ($payload['role'] ?? 'student'));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
+            jsonResponse(400, ['success' => false, 'message' => 'Informe e-mail e senha.']);
+        }
 
         $stmt = $pdo->prepare('SELECT * FROM users WHERE email = :email LIMIT 1');
         $stmt->execute(['email' => $email]);
@@ -88,6 +105,7 @@ try {
             jsonResponse(401, ['success' => false, 'message' => 'E-mail, senha ou tipo de conta incorretos.']);
         }
 
+        session_regenerate_id(true);
         $_SESSION['user_id'] = (int) $user['id'];
         $_SESSION['user_role'] = $user['role'] ?? 'student';
 
@@ -96,6 +114,60 @@ try {
         $pref = $settings->fetch();
 
         jsonResponse(200, ['success' => true, 'user' => ['id' => (int) $user['id'], 'name' => $user['name'], 'email' => $user['email'], 'role' => $user['role'] ?? 'student'], 'settings' => $pref ?: ['theme' => 'light', 'memory_best' => 0]]);
+    }
+
+    if ($action === 'session') {
+        $userId = (int) ($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0) {
+            jsonResponse(200, ['success' => true, 'authenticated' => false]);
+        }
+        $user = authenticatedUser($pdo);
+        $settingsStmt = $pdo->prepare('SELECT theme, memory_best FROM user_settings WHERE user_id = :user_id LIMIT 1');
+        $settingsStmt->execute(['user_id' => $user['id']]);
+        jsonResponse(200, ['success' => true, 'authenticated' => true, 'user' => $user, 'settings' => $settingsStmt->fetch() ?: ['theme' => 'light', 'memory_best' => 0]]);
+    }
+
+    if ($action === 'logout') {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+        }
+        session_destroy();
+        jsonResponse(200, ['success' => true]);
+    }
+
+    if ($action === 'profile') {
+        $user = authenticatedUser($pdo);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            jsonResponse(405, ['success' => false, 'message' => 'Método não permitido.']);
+        }
+
+        $name = trim((string) ($payload['name'] ?? ''));
+        $currentPassword = (string) ($payload['current_password'] ?? '');
+        $newPassword = (string) ($payload['new_password'] ?? '');
+        if ($name === '' || mb_strlen($name) > 50) {
+            jsonResponse(400, ['success' => false, 'message' => 'Informe um nome com até 50 caracteres.']);
+        }
+
+        if ($newPassword !== '') {
+            if (strlen($newPassword) < 8) {
+                jsonResponse(400, ['success' => false, 'message' => 'A nova senha deve ter pelo menos 8 caracteres.']);
+            }
+            $passwordStmt = $pdo->prepare('SELECT password FROM users WHERE id = :id');
+            $passwordStmt->execute(['id' => $user['id']]);
+            $storedPassword = $passwordStmt->fetchColumn();
+            if (!$currentPassword || !password_verify($currentPassword, (string) $storedPassword)) {
+                jsonResponse(403, ['success' => false, 'message' => 'A senha atual está incorreta.']);
+            }
+            $stmt = $pdo->prepare('UPDATE users SET name = :name, password = :password WHERE id = :id');
+            $stmt->execute(['name' => $name, 'password' => password_hash($newPassword, PASSWORD_DEFAULT), 'id' => $user['id']]);
+        } else {
+            $stmt = $pdo->prepare('UPDATE users SET name = :name WHERE id = :id');
+            $stmt->execute(['name' => $name, 'id' => $user['id']]);
+        }
+
+        jsonResponse(200, ['success' => true, 'user' => ['id' => (int) $user['id'], 'name' => $name, 'email' => $user['email'], 'role' => $user['role']]]);
     }
 
     if ($action === 'errors') {
@@ -198,15 +270,18 @@ try {
     }
 
     if ($action === 'save_ranking') {
-        $name = trim((string) ($payload['name'] ?? 'Jogador 1'));
+        $user = authenticatedUser($pdo);
         $game = trim((string) ($payload['game'] ?? 'battle'));
         $time = max(1, (int) ($payload['time'] ?? 0));
+        if (!in_array($game, ['memory', 'battle-easy', 'battle-medium', 'battle-hard'], true)) {
+            jsonResponse(400, ['success' => false, 'message' => 'Jogo inválido para o ranking.']);
+        }
 
         $stmt = $pdo->prepare('INSERT INTO ranking (user_id, game, nickname, time_seconds) VALUES (:user_id, :game, :nickname, :time_seconds)');
         $stmt->execute([
-            'user_id' => isset($payload['user_id']) ? (int) $payload['user_id'] : null,
+            'user_id' => $user['id'],
             'game' => $game,
-            'nickname' => $name !== '' ? $name : 'Jogador 1',
+            'nickname' => $user['name'],
             'time_seconds' => $time,
         ]);
 
@@ -214,46 +289,110 @@ try {
     }
 
     if ($action === 'history') {
-        $userId = (int) ($_GET['user_id'] ?? $payload['user_id'] ?? 0);
-        if ($userId <= 0) {
-            jsonResponse(400, ['success' => false, 'message' => 'Usuário não informado.']);
-        }
+        $user = authenticatedUser($pdo);
 
         $stmt = $pdo->prepare('SELECT * FROM matches WHERE user_id = :user_id ORDER BY played_at DESC LIMIT 20');
-        $stmt->execute(['user_id' => $userId]);
+        $stmt->execute(['user_id' => $user['id']]);
 
         jsonResponse(200, ['success' => true, 'items' => $stmt->fetchAll()]);
     }
 
+    if ($action === 'dashboard') {
+        $user = authenticatedUser($pdo);
+        $userId = (int) $user['id'];
+        $statsStmt = $pdo->prepare('SELECT COUNT(*) AS games_played, COALESCE(SUM(won), 0) AS wins, COALESCE(SUM(correct_answers), 0) AS correct_answers, COALESCE(MAX(score), 0) AS best_score FROM matches WHERE user_id = :user_id');
+        $statsStmt->execute(['user_id' => $userId]);
+        $stats = $statsStmt->fetch() ?: [];
+        $errorsStmt = $pdo->prepare('SELECT COUNT(*) FROM errors WHERE user_id = :user_id');
+        $errorsStmt->execute(['user_id' => $userId]);
+        $recentErrorsStmt = $pdo->prepare('SELECT question, student_answer, correct_answer, difficulty, created_at FROM errors WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 5');
+        $recentErrorsStmt->execute(['user_id' => $userId]);
+        $recentStmt = $pdo->prepare('SELECT game, won, score, difficulty, correct_answers, played_at FROM matches WHERE user_id = :user_id ORDER BY played_at DESC LIMIT 8');
+        $recentStmt->execute(['user_id' => $userId]);
+        $achievementStmt = $pdo->prepare('SELECT achievement_key, title, description, unlocked_at FROM achievements WHERE user_id = :user_id ORDER BY unlocked_at DESC');
+        $achievementStmt->execute(['user_id' => $userId]);
+        $progressStmt = $pdo->prepare('SELECT game, level FROM user_progress WHERE user_id = :user_id');
+        $progressStmt->execute(['user_id' => $userId]);
+
+        jsonResponse(200, [
+            'success' => true,
+            'stats' => [
+                'games_played' => (int) ($stats['games_played'] ?? 0),
+                'wins' => (int) ($stats['wins'] ?? 0),
+                'correct_answers' => (int) ($stats['correct_answers'] ?? 0),
+                'errors' => (int) $errorsStmt->fetchColumn(),
+                'best_score' => (int) ($stats['best_score'] ?? 0),
+            ],
+            'matches' => $recentStmt->fetchAll(),
+            'recent_errors' => $recentErrorsStmt->fetchAll(),
+            'achievements' => $achievementStmt->fetchAll(),
+            'progress' => $progressStmt->fetchAll(),
+        ]);
+    }
+
     if ($action === 'save_match') {
-        $userId = isset($payload['user_id']) ? (int) $payload['user_id'] : null;
+        $user = authenticatedUser($pdo);
+        $game = trim((string) ($payload['game'] ?? ''));
+        $difficulty = trim((string) ($payload['difficulty'] ?? ''));
+        $won = filter_var($payload['won'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $score = (int) ($payload['score'] ?? -1);
+        $correctAnswers = (int) ($payload['correct_answers'] ?? -1);
+        if (!in_array($game, ['battle', 'memory'], true) || !in_array($difficulty, ['easy', 'medium', 'hard'], true) || $score < 0 || $correctAnswers < 0 || $correctAnswers > 1000) {
+            jsonResponse(400, ['success' => false, 'message' => 'Resultado de partida inválido.']);
+        }
+
+        $pdo->beginTransaction();
         $stmt = $pdo->prepare('INSERT INTO matches (user_id, game, won, score, difficulty, correct_answers) VALUES (:user_id, :game, :won, :score, :difficulty, :correct_answers)');
         $stmt->execute([
-            'user_id' => $userId,
-            'game' => trim((string) ($payload['game'] ?? 'battle')),
-            'won' => (int) ($payload['won'] ?? 0),
-            'score' => (int) ($payload['score'] ?? 0),
-            'difficulty' => trim((string) ($payload['difficulty'] ?? 'easy')),
-            'correct_answers' => (int) ($payload['correct_answers'] ?? 0),
+            'user_id' => $user['id'],
+            'game' => $game,
+            'won' => $won ? 1 : 0,
+            'score' => $score,
+            'difficulty' => $difficulty,
+            'correct_answers' => $correctAnswers,
         ]);
 
+        $level = ['easy' => 1, 'medium' => 2, 'hard' => 3][$difficulty];
+        $progressStmt = $pdo->prepare('INSERT INTO user_progress (user_id, game, level) VALUES (:user_id, :game, :level) ON DUPLICATE KEY UPDATE level = GREATEST(level, VALUES(level))');
+        $progressStmt->execute(['user_id' => $user['id'], 'game' => $game, 'level' => $won ? $level : 0]);
+
+        $awardStmt = $pdo->prepare('INSERT IGNORE INTO achievements (user_id, achievement_key, title, description) VALUES (:user_id, :achievement_key, :title, :description)');
+        $award = static function (string $key, string $title, string $description) use ($awardStmt, $user): void {
+            $awardStmt->execute(['user_id' => $user['id'], 'achievement_key' => $key, 'title' => $title, 'description' => $description]);
+        };
+        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM matches WHERE user_id = :user_id');
+        $countStmt->execute(['user_id' => $user['id']]);
+        if ((int) $countStmt->fetchColumn() === 1) {
+            $award('first-match', 'Primeira missão', 'Você concluiu sua primeira partida.');
+        }
+        if ($won) {
+            $award('first-victory', 'Primeira vitória', 'Você venceu sua primeira partida.');
+        }
+        if ($game === 'memory' && $won) {
+            $award('memory-master', 'Memória afiada', 'Você encontrou todos os pares no jogo da memória.');
+        }
+        $winsStmt = $pdo->prepare('SELECT COUNT(*) FROM matches WHERE user_id = :user_id AND won = 1');
+        $winsStmt->execute(['user_id' => $user['id']]);
+        if ((int) $winsStmt->fetchColumn() >= 5) {
+            $award('five-victories', 'Persistência', 'Você conquistou cinco vitórias.');
+        }
+        $pdo->commit();
         jsonResponse(201, ['success' => true, 'message' => 'Partida salva.']);
     }
 
     if ($action === 'save_error') {
-        $userId = (int) ($payload['user_id'] ?? 0);
-        $studentName = trim((string) ($payload['student_name'] ?? 'Jogador 1'));
+        $user = authenticatedUser($pdo);
         $question = trim((string) ($payload['question'] ?? ''));
         $studentAnswer = trim((string) ($payload['student_answer'] ?? ''));
         $correctAnswer = trim((string) ($payload['correct_answer'] ?? ''));
         $difficulty = trim((string) ($payload['difficulty'] ?? 'easy'));
-        if ($userId <= 0 || $question === '' || $correctAnswer === '') {
+        if ($question === '' || strlen($question) > 120 || $correctAnswer === '' || !in_array($difficulty, ['easy', 'medium', 'hard'], true)) {
             jsonResponse(400, ['success' => false, 'message' => 'Dados do erro inválidos.']);
         }
         $stmt = $pdo->prepare('INSERT INTO errors (user_id, student_name, question, student_answer, correct_answer, difficulty, status) VALUES (:user_id, :student_name, :question, :student_answer, :correct_answer, :difficulty, "open")');
         $stmt->execute([
-            'user_id' => $userId,
-            'student_name' => $studentName,
+            'user_id' => $user['id'],
+            'student_name' => $user['name'],
             'question' => $question,
             'student_answer' => $studentAnswer,
             'correct_answer' => $correctAnswer,
@@ -263,20 +402,21 @@ try {
     }
 
     if ($action === 'settings') {
-        $userId = (int) ($_GET['user_id'] ?? $payload['user_id'] ?? 0);
-        if ($userId <= 0) {
-            jsonResponse(400, ['success' => false, 'message' => 'Usuário não informado.']);
-        }
+        $user = authenticatedUser($pdo);
+        $userId = (int) $user['id'];
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $theme = trim((string) ($payload['theme'] ?? 'light'));
+            $currentStmt = $pdo->prepare('SELECT theme, memory_best FROM user_settings WHERE user_id = :user_id LIMIT 1');
+            $currentStmt->execute(['user_id' => $userId]);
+            $currentSettings = $currentStmt->fetch() ?: ['theme' => 'light', 'memory_best' => 0];
+            $theme = array_key_exists('theme', $payload) ? trim((string) $payload['theme']) : $currentSettings['theme'];
             $memoryBest = max(0, (int) ($payload['memory_best'] ?? 0));
 
             $stmt = $pdo->prepare('INSERT INTO user_settings (user_id, theme, memory_best) VALUES (:user_id, :theme, :memory_best) ON DUPLICATE KEY UPDATE theme = VALUES(theme), memory_best = GREATEST(memory_best, VALUES(memory_best))');
             $stmt->execute([
                 'user_id' => $userId,
                 'theme' => $theme === 'dark' ? 'dark' : 'light',
-                'memory_best' => $memoryBest,
+                'memory_best' => max($memoryBest, (int) $currentSettings['memory_best']),
             ]);
 
             jsonResponse(200, ['success' => true, 'message' => 'Configuração salva.']);
@@ -291,5 +431,9 @@ try {
 
     jsonResponse(400, ['success' => false, 'message' => 'Ação inválida.']);
 } catch (Throwable $exception) {
-    jsonResponse(500, ['success' => false, 'message' => 'Erro no banco de dados: ' . $exception->getMessage()]);
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log($exception->getMessage());
+    jsonResponse(500, ['success' => false, 'message' => 'Não foi possível concluir a operação. Tente novamente.']);
 }
