@@ -87,3 +87,33 @@ CREATE TABLE IF NOT EXISTS user_progress (
     UNIQUE KEY uq_user_game_progress (user_id, game),
     CONSTRAINT fk_user_progress_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

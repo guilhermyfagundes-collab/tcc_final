@@ -11,9 +11,10 @@ Plataforma de aprendizagem de Matemática para o Ensino Fundamental II. Mantém 
 - A rodada atual, a energia e o resultado são atualizados durante a partida.
 - A Memória dos Números trabalha a associação de cartas com números iguais, com níveis de 4, 6 e 8 pares.
 - O painel do aluno apresenta partidas, acertos, erros para revisar, vitórias, progresso por jogo e conquistas.
-- Os controles flutuantes permitem ampliar ou reduzir a tela (100% a 150%), ativar contraste/redução de animações e entrar em tela cheia.
+- Os controles flutuantes permitem ampliar ou reduzir a tela (100% a 150%) e entrar em tela cheia.
 - O widget oficial VLibras pode traduzir conteúdos do site para Língua Brasileira de Sinais; requer conexão com a internet para carregar.
 - Cadastro e login dependem do PHP e do MySQL; a sessão é mantida pelo cookie seguro da sessão PHP.
+- A tela de boas-vindas é a primeira experiência para visitantes; é necessário entrar ou criar uma conta para acessar os jogos. O formulário de senha permite mostrar ou ocultar o que foi digitado.
 - O perfil permite alterar o nome e, com confirmação da senha atual, cadastrar uma nova senha.
 
 ## Estrutura
@@ -41,3 +42,14 @@ A recuperação automática de senha não está configurada: a tela orienta o al
 5. Abra `http://localhost/tcc_final/`.
 
 Opção rápida: execute `iniciar-jogo.bat` dentro desta pasta. Ele abre o site no Apache pelo endereço `http://localhost/tcc_final/`.
+
+## Publicar na InfinityFree
+
+O arquivo `conta-combate-infinityfree.zip` contém os arquivos necessários para a hospedagem. Extraia o ZIP e envie o conteúdo da pasta para `htdocs` pelo gerenciador de arquivos ou FTP; `index.php` deve ficar diretamente dentro de `htdocs`, não em uma subpasta.
+
+1. No painel da InfinityFree, crie um banco MySQL e anote o nome do host, o nome do banco, o usuário e a senha exibidos no painel.
+2. Selecione esse banco no phpMyAdmin e importe `database/conta_combate.sql` que está dentro do ZIP. Esse arquivo não cria banco nem seleciona um nome local.
+3. Edite `config/db.php` no servidor e substitua os valores padrão de host, porta (`3306`), banco, usuário e senha pelas informações do painel da InfinityFree.
+4. Acesse o domínio para testar cadastro, login e jogos. O cadastro de professor fica desabilitado até configurar `PROFESSOR_ACCESS_CODE` no servidor; não use um código público.
+
+O ZIP não inclui `.git`, arquivos de resposta locais, o iniciador do Laragon nem o script de migração manual. Mantenha uma cópia local do projeto e não publique credenciais do banco.

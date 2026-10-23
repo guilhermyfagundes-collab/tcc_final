@@ -159,6 +159,7 @@ function clearTransientScreens() {
 
 // Cria a biblioteca de jogos, onde o usuário escolhe entre o jogo principal e o jogo secundário.
 function createGameLibrary(nickname) {
+  if (!requireAuthenticated()) return;
   const existing = $('.game-library');
   if (existing) {
     existing.remove();
@@ -218,7 +219,54 @@ async function signOut() {
   document.querySelectorAll('.professor-panel').forEach((panel) => panel.remove());
   const accountButton = $('#account-button');
   if (accountButton) accountButton.hidden = true;
-  createAuthScreen();
+  createWelcomeScreen();
+}
+
+function requireAuthenticated() {
+  const user = getCurrentUser();
+  if (user && user.id) return true;
+  if (!$('.auth-screen') && !$('.welcome-screen')) createWelcomeScreen();
+  return false;
+}
+
+function ensureAccountButton() {
+  if ($('#account-button')) return;
+  const accountButton = document.createElement('button');
+  accountButton.id = 'account-button';
+  accountButton.className = 'account-button';
+  accountButton.type = 'button';
+  accountButton.textContent = 'Sair';
+  accountButton.hidden = true;
+  accountButton.addEventListener('click', signOut);
+  $('.top-actions').prepend(accountButton);
+}
+
+function createWelcomeScreen() {
+  const existing = $('.welcome-screen');
+  if (existing) existing.remove();
+  ensureAccountButton();
+  const welcome = document.createElement('section');
+  welcome.className = 'welcome-screen';
+  welcome.setAttribute('aria-labelledby', 'welcome-title');
+  welcome.innerHTML = '<div class="welcome-card"><header class="welcome-brand"><img src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><span>GUILF TECH <i>/</i> CONTA &amp; COMBATE</span></header><div class="welcome-content"><div class="welcome-copy"><p class="eyebrow">SUA PRÓXIMA MISSÃO COMEÇA AQUI</p><h1 id="welcome-title">Aprenda.<br>Ataque.<br><em>Vença.</em></h1><p class="welcome-description">Pratique Matemática em uma aventura feita para você. Resolva desafios, conquiste fases e acompanhe seu progresso.</p><div class="welcome-actions"><button type="button" class="welcome-login">Entrar na minha conta <span aria-hidden="true">→</span></button><button type="button" class="welcome-register">Criar cadastro gratuito</button></div><p class="welcome-note">Entre ou crie sua conta para acessar os jogos e salvar seu progresso.</p></div><div class="welcome-art" aria-hidden="true"><span class="welcome-spark welcome-spark-one">✦</span><span class="welcome-spark welcome-spark-two">＋</span><div class="welcome-art-card"><span>DESAFIO DE HOJE</span><strong>7 × 8 = ?</strong><small>Uma resposta pode mudar tudo!</small></div><img src="assets/hero-guardiao.svg" alt=""></div></div><footer class="welcome-footer"><span>Matemática com diversão, estratégia e novas conquistas.</span><span>Aprenda no seu ritmo.</span></footer></div>';
+  const welcomeArt = welcome.querySelector('.welcome-art');
+  welcomeArt.removeAttribute('aria-hidden');
+  welcomeArt.replaceChildren();
+  const welcomeLogo = document.createElement('img');
+  welcomeLogo.src = 'assets/guilf-tech-logo-transparent.png?v=2';
+  welcomeLogo.alt = 'GUILF TECH';
+  welcomeLogo.loading = 'eager';
+  welcomeLogo.decoding = 'async';
+  welcomeArt.append(welcomeLogo);
+  document.body.prepend(welcome);
+  welcome.querySelector('.welcome-login').addEventListener('click', () => {
+    welcome.remove();
+    createAuthScreen('login');
+  });
+  welcome.querySelector('.welcome-register').addEventListener('click', () => {
+    welcome.remove();
+    createAuthScreen('register');
+  });
 }
 
 // Cria a tela inicial do painel do usuário com os jogos principais e ações rápidas.
@@ -361,6 +409,7 @@ function createProfessorPanel() {
 
 // Inicia o jogo de memória, montando a tela de cartas, ranking e controles do jogo.
 function startMemoryGame(nickname) {
+  if (!requireAuthenticated()) return;
   const existingMemory = document.querySelector('.memory-screen');
   if (existingMemory) {
     existingMemory.remove();
@@ -479,24 +528,34 @@ function createHeroBrand() {
   title.parentNode.insertBefore(brand, title);
 }
 
-function createAuthScreen() {
+function createAuthScreen(initialMode = 'login') {
   const existingAuth = $('.auth-screen');
   if (existingAuth) existingAuth.remove();
   const auth = document.createElement('section');
   auth.className = 'auth-screen';
   // Tela de autenticação com login, cadastro e recuperação de senha.
   auth.innerHTML = '<div class="auth-card"><img class="auth-logo" src="assets/gulf-tech-logo.svg" alt="GUILF TECH"><p class="eyebrow">ARENA MATEMÁTICA</p><h1 id="auth-title">Bem-vindo!</h1><p class="auth-subtitle">Entre para continuar sua jornada.</p><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-mode="login">Entrar</button><button type="button" class="auth-tab" data-auth-mode="register">Criar cadastro</button></div><form id="auth-form"><label for="auth-name" class="register-only">Seu nick</label><input id="auth-name" class="register-only" type="text" maxlength="50" placeholder="Como quer ser chamado?" autocomplete="nickname"><label for="auth-email">E-mail</label><input id="auth-email" type="email" placeholder="seu@email.com" autocomplete="email" required><label for="auth-password">Senha</label><input id="auth-password" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" autocomplete="current-password" required><label for="auth-role">Tipo de conta</label><select id="auth-role"><option value="student">Aluno</option><option value="professor">Professor</option><option value="admin">Admin</option></select><label for="auth-professor-code" class="register-only professor-code-field">Código de Professor</label><input id="auth-professor-code" class="register-only professor-code-field" type="password" placeholder="Digite o código" autocomplete="off"><button class="auth-submit" type="submit">Entrar na arena <span>→</span></button><button type="button" class="auth-forgot-password" id="auth-forgot-password">Preciso de ajuda para acessar</button><p id="auth-message" class="auth-message" role="alert"></p></form><small class="auth-note">As contas e o progresso são vinculados ao banco de dados.</small></div>';
+  const passwordInput = auth.querySelector('#auth-password');
+  const passwordControl = document.createElement('div');
+  passwordControl.className = 'auth-password-control';
+  passwordInput.parentNode.insertBefore(passwordControl, passwordInput);
+  passwordControl.append(passwordInput);
+  const passwordToggle = document.createElement('button');
+  passwordToggle.type = 'button';
+  passwordToggle.className = 'auth-password-toggle';
+  passwordToggle.textContent = 'Mostrar';
+  passwordToggle.setAttribute('aria-label', 'Mostrar senha');
+  passwordToggle.setAttribute('aria-pressed', 'false');
+  passwordControl.append(passwordToggle);
+  passwordToggle.addEventListener('click', () => {
+    const visible = passwordInput.type === 'password';
+    passwordInput.type = visible ? 'text' : 'password';
+    passwordToggle.textContent = visible ? 'Ocultar' : 'Mostrar';
+    passwordToggle.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+    passwordToggle.setAttribute('aria-pressed', String(visible));
+  });
   document.body.prepend(auth);
-  if (!$('#account-button')) {
-    const accountButton = document.createElement('button');
-    accountButton.id = 'account-button';
-    accountButton.className = 'account-button';
-    accountButton.type = 'button';
-    accountButton.textContent = 'Sair';
-    accountButton.hidden = true;
-    accountButton.addEventListener('click', signOut);
-    $('.top-actions').prepend(accountButton);
-  }
+  ensureAccountButton();
   let mode = 'login';
   const name = $('#auth-name');
   const email = $('#auth-email');
@@ -523,6 +582,7 @@ function createAuthScreen() {
     message.textContent = '';
   };
   $$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.authMode)));
+  setMode(initialMode);
   role.addEventListener('change', () => {
     professorCode.closest('.professor-code-field').classList.toggle('visible', mode === 'register' && role.value === 'professor');
   });
@@ -568,7 +628,11 @@ function createAuthScreen() {
       }
       $('#nickname-input').value = user.name;
       auth.classList.add('authenticated');
-      setTimeout(() => { auth.remove(); createHomeScreen(user.name, user.role || 'student'); }, 350);
+      setTimeout(() => {
+        auth.remove();
+        $('.welcome-screen')?.remove();
+        createHomeScreen(user.name, user.role || 'student');
+      }, 350);
       return;
     }
     message.textContent = response?.message || 'Não foi possível conectar ao servidor. Verifique o Apache e o banco de dados.';
@@ -580,7 +644,7 @@ function createAccessibilityButton() {
   toolbar.id = 'accessibility-toolbar';
   toolbar.className = 'accessibility-toolbar';
   toolbar.setAttribute('aria-label', 'Opções de acessibilidade');
-  toolbar.innerHTML = '<button type="button" class="accessibility-zoom-button" id="zoom-out" aria-label="Diminuir tamanho da tela">A−</button><span id="zoom-level" aria-live="polite">100%</span><button type="button" class="accessibility-zoom-button" id="zoom-in" aria-label="Aumentar tamanho da tela">A+</button><button type="button" id="accessibility-button" aria-pressed="false" aria-label="Ativar alto contraste e reduzir animações" title="Alto contraste e menos animações">◐</button><button type="button" id="accessibility-fullscreen" aria-label="Ativar tela cheia" title="Tela cheia">⛶</button>';
+  toolbar.innerHTML = '<button type="button" class="accessibility-zoom-button" id="zoom-out" aria-label="Diminuir tamanho da tela">A−</button><span id="zoom-level" aria-live="polite">100%</span><button type="button" class="accessibility-zoom-button" id="zoom-in" aria-label="Aumentar tamanho da tela">A+</button><button type="button" id="accessibility-fullscreen" aria-label="Ativar tela cheia" title="Tela cheia">⛶</button>';
   document.body.append(toolbar);
 
   const zoomSteps = [100, 110, 120, 130, 140, 150];
@@ -600,11 +664,6 @@ function createAccessibilityButton() {
   toolbar.querySelector('#zoom-in').addEventListener('click', () => {
     zoom = zoomSteps[Math.min(zoomSteps.length - 1, zoomSteps.indexOf(zoom) + 1)];
     updateZoom();
-  });
-  toolbar.querySelector('#accessibility-button').addEventListener('click', (event) => {
-    const enabled = document.body.classList.toggle('accessibility-mode');
-    event.currentTarget.setAttribute('aria-pressed', String(enabled));
-    toast(enabled ? 'Alto contraste e redução de animações ativados.' : 'Modo acessível desativado.');
   });
   toolbar.querySelector('#accessibility-fullscreen').addEventListener('click', (event) => toggleFullscreen(event.currentTarget));
   updateZoom();
@@ -902,6 +961,7 @@ function showFinalReport(won) {
   report.innerHTML = `${won ? '<img src="assets/trophy.svg" alt="Troféu de vitória"><img class="victory-stars" src="assets/victory-stars.svg" alt="Estrelas de vitória">' : ''}<strong>${won ? 'Relatório da vitória' : 'Relatório da partida'}</strong><span>Acertos: ${state.correctAnswers}/${state.questionIndex}</span><span>Precisão: ${accuracy}%</span><span>Pontuação: ${state.score}</span><span>Medalha: ${medal}</span>`;
 }
 function startGame() {
+  if (!requireAuthenticated()) return;
   clearTimeout(state.machineTimer); clearTimeout(state.transitionTimer); clearInterval(state.questionTimer);
   state.active = true; state.paused = false; state.answerLocked = false; state.gameStartedAt = Date.now(); state.questionIndex = 0; state.streak = 0; state.score = 0; state.correctAnswers = 0; state.shield = false; state.playerHealth = config.startingHealth; state.maxOpponentHealth = state.difficulty === 'hard' ? 130 : config.startingHealth; state.opponentHealth = state.maxOpponentHealth;
   $('.arena').classList.remove('game-won', 'game-lost');
@@ -950,6 +1010,7 @@ async function restoreSession() {
   }
   const auth = $('.auth-screen');
   if (auth) auth.remove();
+  $('.welcome-screen')?.remove();
   $('#nickname-input').value = response.user.name;
   createHomeScreen(response.user.name, response.user.role || 'student');
 }
@@ -986,6 +1047,57 @@ createMainGameActions();
 renderDifficultyRanking();
 setCharacter(state.character);
 $('.character-robot').innerHTML = '<img src="assets/character-robo.svg" alt="Professor Robô">';
-createAuthScreen();
+createWelcomeScreen();
 updateHealth();
 restoreSession();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<?php
+$pdo = new PDO($dsn, $config['user'], $config['pass']);
+
+
+
+
